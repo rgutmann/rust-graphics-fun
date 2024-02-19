@@ -8,6 +8,7 @@ extern crate piston;
 extern crate core;
 
 use std::f64::consts::PI;
+use std::ops::Deref;
 use std::sync::RwLock;
 use glam::{DVec2};
 use glutin_window::GlutinWindow;
@@ -104,24 +105,99 @@ impl RigidBody {
     /// WARNING: Only convex polygons are supported!
     fn intersect(&self, body:&RigidBody) -> Option<DVec2> {
         // see https://stackoverflow.com/questions/753140/how-do-i-determine-if-two-convex-polygons-intersect
-        // TODO RigidBody::intersect
         // idea: use slower ray casting algorithm since it can handle non-convex polygons
         // and also returns the intersection point which we might need in the future
         // TODO do both have collider polygons?
         // TODO if no, just check if point is included in the other
         // TODO otherwise iterate over all my and his vertices (to check if they're included in the other)
+        // iterate over all my vertices
+        let mut intersection_point = None;
+        let my_pos = self.pos.clone();
+        let other_pos = body.pos.clone();
+        // rotate AND translate vertices points
+        let my_points:Vec<DVec2> = self.coll.as_ref().unwrap().points.deref().clone()
+            .iter().map(|p| { DVec2::from_angle(self.ori).rotate(*p)+my_pos }).collect();
+        let other_points:Vec<DVec2> = body.coll.as_ref().unwrap().points.deref().clone()
+            .iter().map(|p| { DVec2::from_angle(body.ori).rotate(*p)+other_pos }).collect();
+        // first check one side, and if not found from the other side
+        intersection_point = Self::is_point_inside(&my_pos, &my_points, &other_points);
+        if intersection_point == None {
+            intersection_point = Self::is_point_inside(&other_pos, &other_points, &my_points);
+        }
 
-        // TODO function to check if point is inside polygon
-        // TODO iterate over all vertices
-        // TODO iterate over all other body's sides
-        // TODO Check if one ray to one of my vertices intersects with the others sides in an uneven count
-        // TODO use a ray which starts much earlier than my center (otherwise we would not identify total inclusion case)
-        // TODO if yes, intersection found - determine intersection point
-
-        // default impl for intersection point now is the middle of both centers
-        let intersection = self.pos + (body.pos - self.pos) * DVec2::new(0.5,0.5);
-        Some(intersection)
+        // // default impl for intersection point now is the middle of both centers
+        // let intersection = self.pos + (body.pos - self.pos) * DVec2::new(0.5,0.5);
+        // Some(intersection)
+        intersection_point
     }
+
+    fn is_point_inside(my_pos: &DVec2, my_points: &Vec<DVec2>, other_points: &Vec<DVec2>) -> Option<DVec2> {
+        //println!("..my_pos {my_pos:?}, my_points {my_points:?}, other_points {other_points:?}");
+        let mut intersection_point = None;
+
+        for p in my_points.iter() {
+            // calculate line parameters (slope and offset) from my center to my vertex (any ray to this vertex is sufficient)
+            let line1 = Self::calculate_line_params(*my_pos, *p);
+            // for the other sides, we need to walk in pairs...
+            let other_count = other_points.len();
+            let mut intersection_list = vec![];
+            // iterate over all other body's sides
+            for i in 0..other_count {
+                let p1 = other_points[i];
+                let mut next_i = i + 1;
+                if next_i >= other_count {
+                    next_i = 0;
+                }
+                let p2 = other_points[next_i];
+                let line2 = Self::calculate_line_params(p1, p2);
+                //println!("..line1 {line1:?}, line2 {line2:?}");
+                // is it intersecting or are they parallel? => compare slopes
+                if line1.0 != line2.0 {
+                    // unequal slope, so there must be an intersection
+                    let x = (line2.1 - line1.1) / (line1.0 - line2.0);
+                    let y = line1.0 * x + line1.1;
+                    //println!("..possible intersection found: {:?}", DVec2::new(x,y));
+                    // check if intersection point is within other side limits
+                    if x >= p1.x.min(p2.x) && x <= p1.x.max(p2.x) {
+                        // check if p is reached before => limits: (my_pos..=p)
+                        if x >= my_pos.x.min(p.x) && x <= my_pos.x.max(p.x) {
+                            //println!("!!intersection found");
+                            intersection_list.push(DVec2::new(x, y));
+                        }
+                    } else {
+                        //println!("..no intersection found");
+                    }
+                } else {
+                    //println!("--parallel lines found");
+                }
+
+            } // end of for all other sides
+
+            // check intersection count - only uneven count is a sign of a real intersection
+            if (intersection_list.len() % 2) > 0 {
+                // found: use last one - we can stop now...
+                intersection_point = Some(intersection_list.get(intersection_list.len() - 1).unwrap().clone());
+                //println!("!!!!!real intersection found");
+                if *(DEBUG.read().unwrap()) { // TODO REMOVE WHEN NOT NEEDED ANYMORE
+                    *(PAUSE.write().unwrap()) = true;
+                }
+                break;
+            } else {
+                //println!("-----no real intersection found");
+            }
+            intersection_list.clear();
+
+        } // end of for my vertices
+        intersection_point
+    }
+
+    /// Calculate slope a1 and offset b1.
+    fn calculate_line_params(p1: DVec2, p2: DVec2) -> (f64,f64) {
+        let a1 = (p2.y - p1.y) / (p2.x - p1.x);
+        let b1 = p2.y - (a1 * p2.x);
+        (a1, b1)
+    }
+
     /// Returns coarse boundary (2d-area) of collision polygon after orientation rotation.
     fn boundary(&self) -> [DVec2;2] {
         match &self.coll {
@@ -287,7 +363,7 @@ impl App {
         for go in self.go_list.iter_mut() {
             let mut dt = args.dt;
             if *(SLOW.read().unwrap()) {
-                dt = dt / 5.0;
+                dt = dt / 10.0;
             }
             go.update(dt, &self.ac);
         }
@@ -312,11 +388,11 @@ impl App {
                     let jbody= (*self.go_list.get(j).unwrap().body()).clone();
                     if let Some(coll_pos) = ibody.intersect(&jbody) {
                         // inform about collision
-                        println!("real collision detected between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
+                        //println!("real collision detected between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
                         self.go_list.get_mut(i).unwrap().collide(&jbody, &coll_pos);
                         self.go_list.get_mut(j).unwrap().collide(&ibody, &coll_pos);
                     } else {
-                        println!("coarse collision ignored between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
+                        //println!("coarse collision ignored between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
                     }
                 }
             }
