@@ -9,6 +9,7 @@ extern crate core;
 
 use std::f64::consts::PI;
 use std::sync::RwLock;
+use std::time::{Duration, Instant};
 use glam::DVec2;
 use glutin_window::GlutinWindow;
 use graphics::Context;
@@ -20,6 +21,7 @@ use piston::window::WindowSettings;
 use rand::RngCore;
 use rand::rngs::OsRng;
 use rigid_body::{Polygon, RigidBody};
+use crate::helper::square_border_at;
 
 mod helper;
 mod rigid_body;
@@ -30,6 +32,20 @@ lazy_static! {
     static ref DEBUG: RwLock<bool> = RwLock::new( false );
     static ref PAUSE: RwLock<bool> = RwLock::new( false );
     static ref SLOW: RwLock<bool> = RwLock::new( false );
+}
+
+/// Graphical marker for temporary debug display.
+pub struct TempMarker {
+    pos: DVec2,
+    expiration: Instant,
+}
+impl TempMarker {
+    pub fn new(pos: &DVec2) -> Self {
+        TempMarker{  pos: pos.clone(), expiration: Instant::now() + Duration::from_secs(2), }
+    }
+    pub fn is_expired(&self) -> bool {
+        Instant::now() > self.expiration
+    }
 }
 
 /// Every object that needs to be alive and rendered.
@@ -143,6 +159,7 @@ pub struct App {
     gl: GlGraphics, // OpenGL drawing backend.
     ac: AppContext,
     go_list: Vec<Box<dyn GameObject>>,
+    marker_list: Vec<TempMarker>,
 }
 
 pub struct AppContext {
@@ -161,6 +178,9 @@ impl App {
             for go in &self.go_list {
                 go.render(&c, gl);
             }
+            self.marker_list.retain(|tm|{!tm.is_expired()});
+            self.marker_list.iter()
+                .for_each(|tm|{ square_border_at(RED,1.0, 4.0, tm.pos, c.transform, gl) });
         });
     }
 
@@ -195,9 +215,12 @@ impl App {
                     let ibody= (*self.go_list.get(i).unwrap().body()).clone();
                     let jbody= (*self.go_list.get(j).unwrap().body()).clone();
                     if let Some(coll_pos) = ibody.intersect(&jbody) {
+                        if *(DEBUG.read().unwrap()) {
+                            // add temporary highlight of position (circle?)
+                            self.marker_list.push(TempMarker::new(&coll_pos));
+                            //*(PAUSE.write().unwrap()) = true; // TODO REMOVE WHEN NOT NEEDED ANYMORE
+                        }
                         // inform about collision
-                        // TODO if DEBUG add temporary highlight of position (circle?)
-
                         //println!("real collision detected between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
                         self.go_list.get_mut(i).unwrap().collide(&jbody, &coll_pos);
                         self.go_list.get_mut(j).unwrap().collide(&ibody, &coll_pos);
@@ -257,7 +280,8 @@ fn main() {
         ac: AppContext {
             window_size: [(initial_window_size[0]) as f64, (initial_window_size[1]) as f64] as [f64;2],
         },
-        go_list
+        go_list,
+        marker_list: vec![],
     };
 
     let mut events = Events::new(EventSettings::new());
@@ -315,5 +339,8 @@ mod test {
         let v2 = Vec2::new(2.0,3.0);
         let v3 = v1.mul(v2);
         println!("{v1}.mul({v2})={v3}");
+
+        let expiation = std::time::Instant::now();
     }
+
 }

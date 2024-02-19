@@ -1,6 +1,5 @@
 use glam::DVec2;
 use std::ops::Deref;
-use crate::DEBUG;
 
 #[derive(Debug, Default, Clone)]
 pub struct RigidBody {
@@ -142,9 +141,6 @@ impl RigidBody {
                 // found: use last one - we can stop now...
                 intersection_point = Some(intersection_list.get(intersection_list.len() - 1).unwrap().clone());
                 //println!("!!!!!real intersection found");
-                if *(DEBUG.read().unwrap()) { // TODO REMOVE WHEN NOT NEEDED ANYMORE
-                    //*(PAUSE.write().unwrap()) = true;
-                }
                 break;
             } else {
                 //println!("-----no real intersection found");
