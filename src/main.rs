@@ -36,6 +36,8 @@ pub struct RigidBody {
     pub ori: f64,
     /// torque (angular velocity)
     pub tor: f64,
+    /// gravity
+    pub grav: f64,
 }
 impl RigidBody {
     /// Updates movement and rotation
@@ -44,6 +46,9 @@ impl RigidBody {
         self.pos = self.pos.add(self.vel.mul(DVec2::new(dt,dt)));
         // accelerate
         self.vel = self.vel.add(self.acc.mul(DVec2::new(dt,dt)));
+        if self.grav > 0f64 {
+            self.vel = self.vel.add(DVec2::new(0f64, self.grav).mul(DVec2::new(dt,dt)));
+        }
         // rotate
         self.ori += self.tor * dt;
     }
@@ -165,6 +170,7 @@ fn main() {
                 tor: 2.0,
                 pos: center_position,
                 vel: DVec2::new(max_speed * ((i+2) as f64 / 10.0), max_speed * ((i+2) as f64 / 10.0)),
+                grav: 50.0,
                 ..Default::default()
             }
         });
