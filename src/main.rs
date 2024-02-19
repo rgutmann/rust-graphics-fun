@@ -24,14 +24,44 @@ pub trait GameObject {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct RigidBody {
+    /// position
+    pub pos: DVec2,
+    /// velocity
+    pub vel: DVec2,
+    /// acceleration
+    pub acc: DVec2,
+    /// orientation (rotation)
+    pub ori: f64,
+    /// torque (angular velocity)
+    pub tor: f64,
+}
+impl RigidBody {
+    pub fn update(&mut self, dt:f64) {
+        // move
+        self.pos = self.pos.add(self.vel.mul(DVec2::new(dt,dt)));
+        // accelerate
+        self.vel = self.vel.add(self.acc.mul(DVec2::new(dt,dt)));
+        // rotate
+        self.ori += self.tor * dt;
+    }
+    pub fn update_with_boundary(&mut self, dt:f64, boundary:[DVec2;2]) -> Option<DVec2> {
+        self.update(dt);
+        let mut violation = DVec2::new(0f64, 0f64);
+        if self.pos[0] < boundary[0][0] { violation[0]+=self.pos[0] - boundary[0][0]; self.pos[0] = boundary[0][0]; };
+        if self.pos[1] < boundary[0][1] { violation[1]+=self.pos[1] - boundary[0][1]; self.pos[1] = boundary[0][1]; };
+        if self.pos[0] > boundary[1][0] { violation[0]+=self.pos[0] - boundary[1][0]; self.pos[0] = boundary[1][0]; };
+        if self.pos[1] > boundary[1][1] { violation[1]+=self.pos[1] - boundary[1][1]; self.pos[1] = boundary[1][1]; };
+        if violation.x == 0f64 && violation.y == 0f64 { None } else { Some(violation) }
+    }
+}
+
 #[derive(Debug)]
 struct Square {
+    body: RigidBody,
     color: [f32; 4],
     size: f64,
-    rotation: f64,
-    rotation_speed: f64,
-    position: DVec2,
-    velocity: DVec2,
 }
 
 impl GameObject for Square {
@@ -40,33 +70,33 @@ impl GameObject for Square {
         let square = rectangle::square(0.0, 0.0, self.size);
         let transform = ctxt
             .transform
-            .trans(self.position[0], self.position[1])
-            .rot_rad(self.rotation)
+            .trans(self.body.pos[0], self.body.pos[1])
+            .rot_rad(self.body.ori)
             .trans(-(self.size/2.0), -(self.size/2.0));
         // Draw a box rotating around the middle of the screen.
         rectangle(self.color, square, transform, gl);
     }
     fn update(&mut self, dt: f64, ac: &AppContext) {
-        // Rotate 2 radians per second.
-        self.rotation += self.rotation_speed * dt;
-        // Move into direction
-        let mut new_pos = self.position.add(self.velocity.mul(DVec2::new(dt,dt)));
-        let mut new_vel = self.velocity;
-        // Check boundary violations
         let half_size = self.size / 2.0;
-        let mut bounced = false;
-        if new_pos[0] < half_size { new_pos[0] = half_size; new_vel[0] = - new_vel[0]; bounced = true; };
-        if new_pos[1] < half_size { new_pos[1] = half_size; new_vel[1] = - new_vel[1]; bounced = true; };
-        if new_pos[0] > (ac.window_size[0] - half_size) { new_pos[0] = ac.window_size[0] - half_size; new_vel[0] = - new_vel[0]; bounced = true; };
-        if new_pos[1] > (ac.window_size[1] - half_size) { new_pos[1] = ac.window_size[1] - half_size; new_vel[1] = - new_vel[1]; bounced = true; };
-        if bounced {
-            // adapt velocity vector by rotating +/- 25% of 1 radian (+/- 14 degrees)
-            new_vel = DVec2::from_angle(1f64 * random_25perc_var()).rotate(new_vel);
-            // adapt rotation speed by +/- 25%
-            self.rotation_speed = - self.rotation_speed * (1.0+random_25perc_var());
+        let boundary = [ DVec2::new(half_size, half_size), DVec2::new(ac.window_size[0] - half_size, ac.window_size[1] - half_size) ];
+        let violation_option = self.body.update_with_boundary(dt, boundary);
+        // Check boundary violations
+        match violation_option {
+            None => {},
+            Some(violation) => {
+                let mut new_vel = self.body.vel;
+                // bounce from border violations
+                if violation.x < 0f64 { new_vel[0] = - new_vel[0]; };
+                if violation.y < 0f64 { new_vel[1] = - new_vel[1]; };
+                if violation.x > 0f64 { new_vel[0] = - new_vel[0]; };
+                if violation.y > 0f64 { new_vel[1] = - new_vel[1]; };
+                // and adapt velocity by rotating +/- 25% of 1 radian (+/- 14 degrees)
+                new_vel = DVec2::from_angle(1f64 * random_25perc_var()).rotate(new_vel);
+                // reverse rotation and adapt rotation speed by +/- 25%
+                self.body.tor = - self.body.tor * (1.0+random_25perc_var());
+                self.body.vel = new_vel;
+            }
         }
-        self.position = new_pos;
-        self.velocity = new_vel;
     }
 }
 
@@ -128,10 +158,13 @@ fn main() {
         let x = Box::new(Square {
             color: [cshard, cshard, cshard, 1.0],
             size: max_size * ((10-i) as f64 / 10.0),
-            rotation: 0.0,
-            rotation_speed: 2.0,
-            position: center_position,
-            velocity: DVec2::new(max_speed * ((i+2) as f64 / 10.0), max_speed * ((i+2) as f64 / 10.0)),
+            body: RigidBody {
+                ori: 0.0,
+                tor: 2.0,
+                pos: center_position,
+                vel: DVec2::new(max_speed * ((i+2) as f64 / 10.0), max_speed * ((i+2) as f64 / 10.0)),
+                ..Default::default()
+            }
         });
         println!("{:?}", x);
         go_list.push(x);
