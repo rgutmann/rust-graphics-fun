@@ -19,9 +19,8 @@ const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 
 // Every object that needs to be rendered on screen.
 pub trait GameObject {
-    /// TODO: self should not be mutable here (but how do we get the current window size for update?!?)
-    fn render(&mut self, ctxt: &Context, gl: &mut GlGraphics);
-    fn update(&mut self, _: f64) {
+    fn render(&self, ctxt: &Context, gl: &mut GlGraphics);
+    fn update(&mut self, _: f64, _ac: &AppContext) {
         // By default do nothing in the update function
     }
 }
@@ -32,15 +31,11 @@ struct Square {
     rotation_speed: f64,
     position: DVec2,
     velocity: DVec2,
-    last_window_size: Option<[f64; 2]>,
 }
 
 impl GameObject for Square {
-    fn render(&mut self, ctxt: &Context, gl: &mut GlGraphics) {
+    fn render(&self, ctxt: &Context, gl: &mut GlGraphics) {
         use graphics::*;
-        if let Some(viewport) = ctxt.viewport {
-            self.last_window_size = Some(viewport.window_size.clone());
-        }
         let square = rectangle::square(0.0, 0.0, self.size);
         let transform = ctxt
             .transform
@@ -50,21 +45,19 @@ impl GameObject for Square {
         // Draw a box rotating around the middle of the screen.
         rectangle(RED, square, transform, gl);
     }
-    fn update(&mut self, _dt: f64) {
+    fn update(&mut self, dt: f64, ac: &AppContext) {
         // Rotate 2 radians per second.
-        self.rotation += self.rotation_speed * _dt;
+        self.rotation += self.rotation_speed * dt;
         // Move into direction
-        let mut new_pos = self.position.add(self.velocity.mul(DVec2::new(_dt,_dt)));
+        let mut new_pos = self.position.add(self.velocity.mul(DVec2::new(dt,dt)));
         let mut new_vel = self.velocity;
         // Check boundary violations
         let half_size = self.size / 2.0;
         let mut bounced = false;
         if new_pos[0] < half_size { new_pos[0] = half_size; new_vel[0] = - new_vel[0]; bounced = true; };
         if new_pos[1] < half_size { new_pos[1] = half_size; new_vel[1] = - new_vel[1]; bounced = true; };
-        if let Some(window_size) = self.last_window_size {
-            if new_pos[0] > (window_size[0] - half_size) { new_pos[0] = window_size[0] - half_size; new_vel[0] = - new_vel[0]; bounced = true; };
-            if new_pos[1] > (window_size[1] - half_size) { new_pos[1] = window_size[1] - half_size; new_vel[1] = - new_vel[1]; bounced = true; };
-        }
+        if new_pos[0] > (ac.window_size[0] - half_size) { new_pos[0] = ac.window_size[0] - half_size; new_vel[0] = - new_vel[0]; bounced = true; };
+        if new_pos[1] > (ac.window_size[1] - half_size) { new_pos[1] = ac.window_size[1] - half_size; new_vel[1] = - new_vel[1]; bounced = true; };
         if bounced {
             // adapt velocity vector by +/- 25% in x and y direction
             new_vel += new_vel.mul(DVec2::new(random_25perc_var(), random_25perc_var()));
@@ -78,12 +71,19 @@ impl GameObject for Square {
 
 pub struct App {
     gl: GlGraphics, // OpenGL drawing backend.
+    ac: AppContext,
     square: Square,
+}
+
+pub struct AppContext {
+    window_size: [f64; 2],
 }
 
 impl App {
     fn render(&mut self, args: &RenderArgs) {
         use graphics::*;
+
+        self.ac.window_size = args.viewport().window_size.clone();
 
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
@@ -94,7 +94,7 @@ impl App {
     }
 
     fn update(&mut self, args: &UpdateArgs) {
-        self.square.update(args.dt);
+        self.square.update(args.dt, &self.ac);
     }
 }
 
@@ -118,13 +118,13 @@ fn main() {
     // Create a new game and run it.
     let mut app = App {
         gl: GlGraphics::new(opengl),
+        ac: AppContext { window_size: [(initial_window_size[0]) as f64, (initial_window_size[1]) as f64] as [f64;2]  },
         square: Square {
             size: 50.0,
             rotation: 0.0,
             rotation_speed: 2.0,
             position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
             velocity: DVec2::new(200.0, 200.0),
-            last_window_size: None,
             },
     };
 
