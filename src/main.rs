@@ -3,8 +3,9 @@ extern crate graphics;
 extern crate opengl_graphics;
 extern crate piston;
 
+use std::ops::{Add, Mul};
+use glam::{DVec2};
 use glutin_window::GlutinWindow as Window;
-use graphics::math::{Vec2d};
 use opengl_graphics::{GlGraphics, OpenGL};
 use piston::event_loop::{EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
@@ -16,9 +17,10 @@ pub struct App {
     gl: GlGraphics, // OpenGL drawing backend.
     square_size: f64,
     square_rotation: f64,
-    square_position: Vec2d,
-    square_velocity: Vec2d, // direction + speed
-    render_window_size: [f64; 2],
+    square_rotation_speed: f64,
+    square_position: DVec2,
+    square_velocity: DVec2, // direction + speed
+    render_window_size: [f64;2],
 }
 
 impl App {
@@ -29,7 +31,6 @@ impl App {
         const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 
         let square = rectangle::square(0.0, 0.0, self.square_size);
-        //let (win_x_size, win_y_size) = (args.window_size[0] / 2.0, args.window_size[1] / 2.0);
 
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
@@ -51,15 +52,10 @@ impl App {
 
     fn update(&mut self, args: &UpdateArgs) {
         // Rotate 2 radians per second.
-        self.square_rotation += 2.0 * args.dt;
+        self.square_rotation += self.square_rotation_speed * args.dt;
         // Move into direction
-        let mut new_pos = self.square_position;
+        let mut new_pos = self.square_position.add(self.square_velocity.mul(DVec2::new(args.dt,args.dt)));
         let mut new_vel = self.square_velocity;
-        // let old_pos = new_pos.clone();
-        // let old_vel = new_vel.clone();
-        new_pos[0] = new_pos[0] + (self.square_velocity[0] * args.dt);
-        new_pos[1] = new_pos[1] + (self.square_velocity[1] * args.dt);
-        //println!("translation {:?}::{:?} -> {:?}::{:?}", old_pos, old_vel, new_pos, new_vel);
         // Check boundary violations
         let half_size = self.square_size / 2.0;
         let mut bounced = false;
@@ -68,15 +64,16 @@ impl App {
         if new_pos[0] > (self.render_window_size[0] - half_size) { new_pos[0] = self.render_window_size[0] - half_size; new_vel[0] = - new_vel[0]; bounced = true; };
         if new_pos[1] > (self.render_window_size[1] - half_size) { new_pos[1] = self.render_window_size[1] - half_size; new_vel[1] = - new_vel[1]; bounced = true; };
         if bounced {
-            // adapt velocity vector by +/- 25%
+            // adapt velocity vector by +/- 25% in x and y direction
             let random_x = (((OsRng.next_u32()) as f64) / (u32::MAX as f64) / 2.0) - 0.25;
             let random_y = (((OsRng.next_u32()) as f64) / (u32::MAX as f64) / 2.0) - 0.25;
-            new_vel[0] = new_vel[0] + (new_vel[0]*random_x);
-            new_vel[1] = new_vel[1] + (new_vel[1]*random_y);
+            new_vel=new_vel.add(new_vel.mul(DVec2::new(random_x,random_y)));
+            // adapt rotation speed by +/- 25%
+            let random_r = (((OsRng.next_u32()) as f64) / (u32::MAX as f64) / 2.0) - 0.25;
+            self.square_rotation_speed = - (self.square_rotation_speed + self.square_rotation_speed * random_r);
         }
         self.square_position = new_pos;
         self.square_velocity = new_vel;
-        //println!("   boundary {:?}::{:?} -> {:?}::{:?}", old_pos, old_vel, new_pos, new_vel);
     }
 }
 
@@ -97,8 +94,9 @@ fn main() {
         gl: GlGraphics::new(opengl),
         square_size: 50.0,
         square_rotation: 0.0,
-        square_position: [ (initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ],
-        square_velocity: [ 200.0, 200.0 ],
+        square_rotation_speed: 2.0,
+        square_position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+        square_velocity: DVec2::new(200.0, 200.0),
         render_window_size: [ initial_window_size[0] as f64, initial_window_size[1] as f64 ],
     };
 
@@ -114,3 +112,22 @@ fn main() {
     }
 }
 
+#[cfg(test)]
+mod test {
+    use std::ops::{Add, Mul};
+    use glam::Vec2;
+
+    #[test]
+    fn test_glam() {
+        let v1 = Vec2::new(1.0,1.0);
+        let v2 = Vec2::new(2.0,3.0);
+        let v3 = v1.add(v2);
+        println!("{v1}.add({v2})={v3}");
+
+        let v1 = Vec2::new(1.0,1.0);
+        let v2 = Vec2::new(2.0,3.0);
+        let v3 = v1.mul(v2);
+        println!("{v1}.mul({v2})={v3}");
+
+    }
+}
