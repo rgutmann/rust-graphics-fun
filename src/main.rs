@@ -6,6 +6,7 @@ extern crate piston;
 use std::ops::{Add, Mul};
 use glam::{DVec2};
 use glutin_window::GlutinWindow as Window;
+use graphics::Context;
 use opengl_graphics::{GlGraphics, OpenGL};
 use piston::event_loop::{EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
@@ -13,68 +14,93 @@ use piston::window::WindowSettings;
 use rand::RngCore;
 use rand::rngs::OsRng;
 
+const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+
+// Every object that needs to be rendered on screen.
+pub trait GameObject {
+    /// TODO: self should not be mutable here (but how do we get the current window size for update?!?)
+    fn render(&mut self, ctxt: &Context, gl: &mut GlGraphics);
+    fn update(&mut self, _: f64) {
+        // By default do nothing in the update function
+    }
+}
+
+struct Square {
+    size: f64,
+    rotation: f64,
+    rotation_speed: f64,
+    position: DVec2,
+    velocity: DVec2,
+    last_window_size: Option<[f64; 2]>,
+}
+
+impl GameObject for Square {
+    fn render(&mut self, ctxt: &Context, gl: &mut GlGraphics) {
+        use graphics::*;
+        if let Some(viewport) = ctxt.viewport {
+            self.last_window_size = Some(viewport.window_size.clone());
+        }
+        let square = rectangle::square(0.0, 0.0, self.size);
+        let transform = ctxt
+            .transform
+            .trans(self.position[0], self.position[1])
+            .rot_rad(self.rotation)
+            .trans(-(self.size/2.0), -(self.size/2.0));
+        // Draw a box rotating around the middle of the screen.
+        rectangle(RED, square, transform, gl);
+    }
+    fn update(&mut self, _dt: f64) {
+        // Rotate 2 radians per second.
+        self.rotation += self.rotation_speed * _dt;
+        // Move into direction
+        let mut new_pos = self.position.add(self.velocity.mul(DVec2::new(_dt,_dt)));
+        let mut new_vel = self.velocity;
+        // Check boundary violations
+        let half_size = self.size / 2.0;
+        let mut bounced = false;
+        if new_pos[0] < half_size { new_pos[0] = half_size; new_vel[0] = - new_vel[0]; bounced = true; };
+        if new_pos[1] < half_size { new_pos[1] = half_size; new_vel[1] = - new_vel[1]; bounced = true; };
+        if let Some(window_size) = self.last_window_size {
+            if new_pos[0] > (window_size[0] - half_size) { new_pos[0] = window_size[0] - half_size; new_vel[0] = - new_vel[0]; bounced = true; };
+            if new_pos[1] > (window_size[1] - half_size) { new_pos[1] = window_size[1] - half_size; new_vel[1] = - new_vel[1]; bounced = true; };
+        }
+        if bounced {
+            // adapt velocity vector by +/- 25% in x and y direction
+            new_vel += new_vel.mul(DVec2::new(random_25perc_var(), random_25perc_var()));
+            // adapt rotation speed by +/- 25%
+            self.rotation_speed = - self.rotation_speed * (1.0+random_25perc_var());
+        }
+        self.position = new_pos;
+        self.velocity = new_vel;
+    }
+}
+
 pub struct App {
     gl: GlGraphics, // OpenGL drawing backend.
-    square_size: f64,
-    square_rotation: f64,
-    square_rotation_speed: f64,
-    square_position: DVec2,
-    square_velocity: DVec2, // direction + speed
-    render_window_size: [f64;2],
+    square: Square,
 }
 
 impl App {
     fn render(&mut self, args: &RenderArgs) {
         use graphics::*;
 
-        const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
-        const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
-
-        let square = rectangle::square(0.0, 0.0, self.square_size);
-
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
             clear(GREEN, gl);
 
-            let transform = c
-                .transform
-                .trans(self.square_position[0], self.square_position[1])
-                .rot_rad(self.square_rotation)
-                .trans(-(self.square_size/2.0), -(self.square_size/2.0));
-
-            // Draw a box rotating around the middle of the screen.
-            rectangle(RED, square, transform, gl);
+            self.square.render(&c, gl);
         });
-
-        // update render_window_size in case window was resized
-        self.render_window_size = args.window_size;
     }
 
     fn update(&mut self, args: &UpdateArgs) {
-        // Rotate 2 radians per second.
-        self.square_rotation += self.square_rotation_speed * args.dt;
-        // Move into direction
-        let mut new_pos = self.square_position.add(self.square_velocity.mul(DVec2::new(args.dt,args.dt)));
-        let mut new_vel = self.square_velocity;
-        // Check boundary violations
-        let half_size = self.square_size / 2.0;
-        let mut bounced = false;
-        if new_pos[0] < half_size { new_pos[0] = half_size; new_vel[0] = - new_vel[0]; bounced = true; };
-        if new_pos[1] < half_size { new_pos[1] = half_size; new_vel[1] = - new_vel[1]; bounced = true; };
-        if new_pos[0] > (self.render_window_size[0] - half_size) { new_pos[0] = self.render_window_size[0] - half_size; new_vel[0] = - new_vel[0]; bounced = true; };
-        if new_pos[1] > (self.render_window_size[1] - half_size) { new_pos[1] = self.render_window_size[1] - half_size; new_vel[1] = - new_vel[1]; bounced = true; };
-        if bounced {
-            // adapt velocity vector by +/- 25% in x and y direction
-            let random_x = (((OsRng.next_u32()) as f64) / (u32::MAX as f64) / 2.0) - 0.25;
-            let random_y = (((OsRng.next_u32()) as f64) / (u32::MAX as f64) / 2.0) - 0.25;
-            new_vel=new_vel.add(new_vel.mul(DVec2::new(random_x,random_y)));
-            // adapt rotation speed by +/- 25%
-            let random_r = (((OsRng.next_u32()) as f64) / (u32::MAX as f64) / 2.0) - 0.25;
-            self.square_rotation_speed = - (self.square_rotation_speed + self.square_rotation_speed * random_r);
-        }
-        self.square_position = new_pos;
-        self.square_velocity = new_vel;
+        self.square.update(args.dt);
     }
+}
+
+// Generates randoms between -25% and +25%
+fn random_25perc_var() -> f64 {
+    (((OsRng.next_u32()) as f64) / (u32::MAX as f64) / 2.0) - 0.25
 }
 
 fn main() {
@@ -92,12 +118,14 @@ fn main() {
     // Create a new game and run it.
     let mut app = App {
         gl: GlGraphics::new(opengl),
-        square_size: 50.0,
-        square_rotation: 0.0,
-        square_rotation_speed: 2.0,
-        square_position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
-        square_velocity: DVec2::new(200.0, 200.0),
-        render_window_size: [ initial_window_size[0] as f64, initial_window_size[1] as f64 ],
+        square: Square {
+            size: 50.0,
+            rotation: 0.0,
+            rotation_speed: 2.0,
+            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+            velocity: DVec2::new(200.0, 200.0),
+            last_window_size: None,
+            },
     };
 
     let mut events = Events::new(EventSettings::new());
@@ -105,7 +133,6 @@ fn main() {
         if let Some(args) = e.render_args() {
             app.render(&args);
         }
-
         if let Some(args) = e.update_args() {
             app.update(&args);
         }
