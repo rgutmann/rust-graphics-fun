@@ -1,14 +1,20 @@
+#[macro_use]
+extern crate lazy_static;
+
 extern crate glutin_window;
 extern crate graphics;
 extern crate opengl_graphics;
 extern crate piston;
 extern crate core;
 
+use std::f64::consts::PI;
+use std::sync::RwLock;
 use glam::{DVec2};
 use glutin_window::GlutinWindow;
 use graphics::Context;
+use graphics::rectangle::rectangle_by_corners;
 use opengl_graphics::{GlGraphics, OpenGL};
-use piston::{Button, PressEvent, Size, Window};
+use piston::{Button, keyboard, MouseButton, PressEvent, Size, Window};
 use piston::event_loop::{EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
@@ -16,6 +22,11 @@ use rand::RngCore;
 use rand::rngs::OsRng;
 
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+lazy_static! {
+    static ref DEBUG: RwLock<bool> = RwLock::new( false );
+    static ref PAUSE: RwLock<bool> = RwLock::new( false );
+}
 
 // Every object that needs to be rendered on screen.
 pub trait GameObject {
@@ -23,12 +34,17 @@ pub trait GameObject {
     fn update(&mut self, _dt: f64, _ac: &AppContext) {
         // By default do nothing in the update function
     }
+    fn boundary(&self) -> [DVec2;2];
+    fn collide(&mut self, body:&RigidBody);
+    fn body(&self) -> &RigidBody;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RigidBody {
     /// position
     pub pos: DVec2,
+    /// previous position
+    pub last_pos: DVec2,
     /// velocity
     pub vel: DVec2,
     /// acceleration
@@ -46,6 +62,7 @@ impl RigidBody {
     /// Updates movement and rotation
     pub fn update(&mut self, dt:f64) {
         // move
+        self.last_pos = self.pos.clone();
         self.pos += self.vel * DVec2::new(dt,dt);
         // accelerate
         self.vel += self.acc * DVec2::new(dt,dt);
@@ -77,11 +94,26 @@ impl RigidBody {
             }
         }
         self.pos -= violation;
-        if violation.x == 0f64 && violation.y == 0f64 { None } else { Some(violation) }
+        if violation.x == 0f64 && violation.y == 0f64 { None }
+        else { Some(violation) }
+    }
+    fn boundary(&self) -> [DVec2;2] {
+        match &self.coll {
+            None => { [ self.pos.clone(), self.pos.clone() ] }, // no dimension, just position
+            Some(poly) => {
+                let mut b = poly.boundary(self.ori);
+                b[0]+=self.pos;
+                b[1]+=self.pos;
+                b
+            }
+        }
+    }
+    fn restore_last_pos(&mut self) {
+        self.pos = self.last_pos;
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 /// Polygon with is centered / relative to (0,0)
 pub struct Polygon {
     points: Box<[DVec2]>,
@@ -122,6 +154,19 @@ impl Square {
         });
         square
     }
+    fn bounce(&mut self, violation: &DVec2) {
+        let mut new_vel = self.body.vel;
+        // bounce from border violations
+        if violation.x < 0f64 { new_vel.x = f64::abs(new_vel.x); };
+        if violation.x > 0f64 { new_vel.x = -f64::abs(new_vel.x); };
+        if violation.y < 0f64 { new_vel.y = f64::abs(new_vel.y); };
+        if violation.y > 0f64 { new_vel.y = -f64::abs(new_vel.y); };
+        // and adapt velocity by rotating +/- 25% of 1 radian (+/- 14 degrees)
+        new_vel = DVec2::from_angle(1f64 * random_25perc_var()).rotate(new_vel);
+        // reverse rotation and adapt rotation speed by +/- 25%
+        self.body.tor = -self.body.tor * (1.0 + random_25perc_var());
+        self.body.vel = new_vel;
+    }
 }
 
 impl GameObject for Square {
@@ -135,6 +180,22 @@ impl GameObject for Square {
             .trans(-(self.size/2.0), -(self.size/2.0));
         // Draw a box rotating around the middle of the screen.
         rectangle(self.color, square, transform, gl);
+        if *DEBUG.read().unwrap() {
+            // velocity vector
+            let transform = ctxt
+                .transform
+                .trans(self.body.pos[0], self.body.pos[1]);
+            line_from_to(RED, 1.0, DVec2::ZERO.clone(), self.body.vel, transform, gl);
+            // boundary box
+            let boundary = self.body.boundary();
+            let transform = ctxt
+                .transform;
+            //rectangle_from_to(RED, boundary[0], boundary[1], transform, gl);
+            line_from_to(RED, 1.0, boundary[0], DVec2::new(boundary[1].x, boundary[0].y), transform, gl);
+            line_from_to(RED, 1.0, DVec2::new(boundary[1].x, boundary[0].y), boundary[1], transform, gl);
+            line_from_to(RED, 1.0, boundary[1], DVec2::new(boundary[0].x, boundary[1].y), transform, gl);
+            line_from_to(RED, 1.0, DVec2::new(boundary[0].x, boundary[1].y), boundary[0], transform, gl);
+        }
     }
     fn update(&mut self, dt: f64, ac: &AppContext) {
         let boundary = [ DVec2::ZERO.clone(), DVec2::new(ac.window_size[0], ac.window_size[1]) ];
@@ -143,19 +204,32 @@ impl GameObject for Square {
         match violation_option {
             None => {},
             Some(violation) => {
-                let mut new_vel = self.body.vel;
-                // bounce from border violations
-                if violation.x < 0f64 { new_vel[0] = - new_vel[0]; };
-                if violation.y < 0f64 { new_vel[1] = - new_vel[1]; };
-                if violation.x > 0f64 { new_vel[0] = - new_vel[0]; };
-                if violation.y > 0f64 { new_vel[1] = - new_vel[1]; };
-                // and adapt velocity by rotating +/- 25% of 1 radian (+/- 14 degrees)
-                new_vel = DVec2::from_angle(1f64 * random_25perc_var()).rotate(new_vel);
-                // reverse rotation and adapt rotation speed by +/- 25%
-                self.body.tor = - self.body.tor * (1.0+random_25perc_var());
-                self.body.vel = new_vel;
+                self.bounce(&violation);
             }
         }
+    }
+    fn boundary(&self) -> [DVec2; 2] {
+        self.body.boundary()
+    }
+    fn collide(&mut self, body:&RigidBody) {
+        self.body.restore_last_pos();
+        let mut direction = (body.pos-self.body.pos).angle_between(DVec2::new(1.0,0.0));
+        if direction < 0.0 { direction+=2.0*PI };
+        const qPI: f64 = PI / 4.0;
+        let violation = if direction < qPI || direction >= qPI * 7.0  {
+            DVec2::new(1.0,0.0)  // right bounce
+        } else if direction < qPI * 3.0 && direction >= qPI * 1.0 {
+            DVec2::new(0.0,-1.0) // top bounce
+        } else if direction < qPI * 5.0 && direction >= qPI * 3.0 {
+            DVec2::new(-1.0,0.0) // left bounce
+        } else if direction < qPI * 7.0 && direction >= qPI * 5.0 {
+            DVec2::new(0.0,1.0)  // bottom bounce
+        } else { DVec2::new(0.0,0.0)  /* no bounce */ };
+        println!("coll between pos {:?} and other pos {:?} with angle {:?} PI/4 resulting in {:?}", self.body.pos, body.pos, direction/qPI, &violation);
+        self.bounce(&violation);
+    }
+    fn body(&self) -> &RigidBody {
+        &self.body
     }
 }
 
@@ -185,9 +259,35 @@ impl App {
     }
 
     fn update(&mut self, args: &UpdateArgs) {
+        // movement of game objects
         for go in self.go_list.iter_mut() {
             go.update(args.dt, &self.ac);
         }
+        // coarse collision detection
+        let boundaries = self.go_list.iter()
+            .map(|go| go.boundary())
+            .collect::<Vec<[DVec2;2]>>();
+        for i in 0..boundaries.len() {
+            for j in (i+1)..boundaries.len() {
+                // check if i is in collision with j
+                let r1 = boundaries[i];
+                let r2 = boundaries[j];
+                let intersect = !(
+                    r2[0].x >= r1[1].x    // r2.left > r1.right
+                    || r2[1].x <= r1[0].x // r2.right < r1.left
+                    || r2[0].y >= r1[1].y // r2.top > r1.bottom
+                    || r2[1].y <= r1[0].y // r2.bottom < r1.top
+                );
+                if intersect {
+                    println!("collision detected between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
+                    let ibody= (*self.go_list.get(i).unwrap().body()).clone();
+                    let jbody= (*self.go_list.get(j).unwrap().body()).clone();
+                    self.go_list.get_mut(i).unwrap().collide(&jbody);
+                    self.go_list.get_mut(j).unwrap().collide(&ibody);
+                }
+            }
+        }
+
     }
 }
 
@@ -225,13 +325,30 @@ fn main() {
             app.render(&args);
         }
         if let Some(args) = e.update_args() {
-            app.update(&args);
+            if !*(PAUSE.read().unwrap()) {
+                app.update(&args);
+            }
+        }
+        if let Some(Button::Keyboard(key)) = e.press_args() {
+            println!("Pressed key '{:?}'", key);
+            if key == keyboard::Key::P {
+                let pause = !*(PAUSE.read().unwrap());
+                println!("Pause flag switched to '{:?}'", pause);
+                *(PAUSE.write().unwrap()) = pause;
+            }
         }
         if let Some(Button::Mouse(button)) = e.press_args() {
-            println!("Pressed mouse button '{:?} {:?}'", button, window.size());
-            let mut game_objects = generate_game_objects(window.size());
-            app.go_list.clear();
-            app.go_list.append(&mut game_objects);
+            println!("Pressed mouse button '{:?}'", button);
+            if button == MouseButton::Left {
+                let mut game_objects = generate_game_objects(window.size());
+                app.go_list.clear();
+                app.go_list.append(&mut game_objects);
+            }
+            if button == MouseButton::Right {
+                let debug = !*(DEBUG.read().unwrap());
+                println!("Debug flag switched to '{:?}'", debug);
+                *(DEBUG.write().unwrap()) = debug;
+            }
         }
     }
 }
@@ -247,6 +364,7 @@ fn generate_game_objects(size: Size) -> Vec<Box<dyn GameObject>> {
             ori: 0.0,
             tor: 2.0,
             pos: center_position + DVec2::new((i - 4) as f64 * (max_size + 20f64), 0f64),
+            //pos: center_position + DVec2::new((max_size + 20f64), 30f64 + (i-1) as f64 * (max_size + 30f64)),
             vel: DVec2::new(max_speed * ((i + 2) as f64 / 10.0), max_speed * ((i + 2) as f64 / 10.0)),
             grav: 50.0,
             ..Default::default()

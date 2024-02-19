@@ -1451,6 +1451,7 @@ name = "rust-graphics-fun"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "lazy_static",
  "piston",
  "piston2d-graphics",
  "piston2d-opengl_graphics",
