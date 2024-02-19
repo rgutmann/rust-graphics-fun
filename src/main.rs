@@ -15,7 +15,11 @@ use rand::RngCore;
 use rand::rngs::OsRng;
 
 const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
-const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+//const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+const GREY_80: [f32; 4] = [0.8, 0.8, 0.8, 1.0];
+const GREY_60: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
+const GREY_40: [f32; 4] = [0.4, 0.4, 0.4, 1.0];
+const GREY_20: [f32; 4] = [0.2, 0.2, 0.2, 1.0];
 
 // Every object that needs to be rendered on screen.
 pub trait GameObject {
@@ -26,6 +30,7 @@ pub trait GameObject {
 }
 
 struct Square {
+    color: [f32; 4],
     size: f64,
     rotation: f64,
     rotation_speed: f64,
@@ -43,7 +48,7 @@ impl GameObject for Square {
             .rot_rad(self.rotation)
             .trans(-(self.size/2.0), -(self.size/2.0));
         // Draw a box rotating around the middle of the screen.
-        rectangle(RED, square, transform, gl);
+        rectangle(self.color, square, transform, gl);
     }
     fn update(&mut self, dt: f64, ac: &AppContext) {
         // Rotate 2 radians per second.
@@ -118,33 +123,38 @@ fn main() {
         .build()
         .unwrap();
 
+    let center_position = DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64);
     let go_list :Vec<Box<dyn GameObject>> = vec![
         Box::new(Square {
+            color: GREY_80,
             size: 50.0,
             rotation: 0.0,
             rotation_speed: 2.0,
-            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+            position: center_position,
             velocity: DVec2::new(200.0, 200.0),
         }),
         Box::new(Square {
+            color: GREY_60,
             size: 40.0,
             rotation: 0.0,
             rotation_speed: 2.0,
-            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+            position: center_position,
             velocity: DVec2::new(160.0, 160.0),
         }),
         Box::new(Square {
+            color: GREY_40,
             size: 30.0,
             rotation: 0.0,
             rotation_speed: 2.0,
-            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+            position: center_position,
             velocity: DVec2::new(120.0, 120.0),
         }),
         Box::new(Square {
+            color: GREY_20,
             size: 20.0,
             rotation: 0.0,
             rotation_speed: 2.0,
-            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+            position: center_position,
             velocity: DVec2::new(80.0, 80.0),
         }),
         ];
