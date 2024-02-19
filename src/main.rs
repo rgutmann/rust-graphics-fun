@@ -66,7 +66,7 @@ impl RigidBody {
                 if self.pos.y > outer[1].y { violation[1]+=self.pos.y - outer[1].y; };
             },
             Some(poly) => {
-                let mut inner = poly.boundary(dt);
+                let mut inner = poly.boundary(self.ori);
                 inner[0] += self.pos;
                 inner[1] += self.pos;
                 if inner[0].x < outer[0].x { violation.x+=inner[0].x - outer[0].x; };
@@ -88,8 +88,11 @@ pub struct Polygon {
 impl Polygon {
     /// Returns a max rectangle shaped boundary area (left upper and right lower point)
     fn boundary(&self, _ori:f64) -> [DVec2;2] {
+        // first rotate collider points
+        let new_points:Vec<DVec2> = self.points.iter().map(|p| { DVec2::from_angle(_ori).rotate(*p) }).collect();
+        // noe determine boundaries
         let mut result = [ DVec2::ZERO.clone(), DVec2::ZERO.clone() ];
-        for p in self.points.iter() {
+        for p in new_points {
             if p.x < result[0].x { result[0].x = p.x };
             if p.y < result[0].y { result[0].y = p.y };
             if p.x > result[1].x { result[1].x = p.x };
