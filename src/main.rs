@@ -25,17 +25,21 @@ const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 lazy_static! {
     static ref DEBUG: RwLock<bool> = RwLock::new( false );
     static ref PAUSE: RwLock<bool> = RwLock::new( false );
+    static ref SLOW: RwLock<bool> = RwLock::new( false );
 }
 
-// Every object that needs to be rendered on screen.
+/// Every object that needs to be alive and rendered.
 pub trait GameObject {
+    /// Render GameObject to view.
     fn render(&self, ctxt: &Context, gl: &mut GlGraphics);
+    /// Update GameObject physic state.
     fn update(&mut self, _dt: f64, _ac: &AppContext) {
         // By default do nothing in the update function
     }
-    fn boundary(&self) -> [DVec2;2];
-    fn collide(&mut self, body:&RigidBody);
+    /// Return body for collision detection.
     fn body(&self) -> &RigidBody;
+    /// Custom collision behavior.
+    fn collide(&mut self, body:&RigidBody, coll_pos:&DVec2);
 }
 
 #[derive(Debug, Default, Clone)]
@@ -54,7 +58,7 @@ pub struct RigidBody {
     pub tor: f64,
     /// gravity
     pub grav: f64,
-    /// collider polygon
+    /// collider polygon (relative to position as center)
     pub coll: Option<Polygon>,
 }
 impl RigidBody {
@@ -96,6 +100,29 @@ impl RigidBody {
         if violation.x == 0f64 && violation.y == 0f64 { None }
         else { Some(violation) }
     }
+    /// Returns intersection point between both bodies or None.
+    /// WARNING: Only convex polygons are supported!
+    fn intersect(&self, body:&RigidBody) -> Option<DVec2> {
+        // see https://stackoverflow.com/questions/753140/how-do-i-determine-if-two-convex-polygons-intersect
+        // TODO RigidBody::intersect
+        // idea: use slower ray casting algorithm since it can handle non-convex polygons
+        // and also returns the intersection point which we might need in the future
+        // TODO do both have collider polygons?
+        // TODO if no, just check if point is included in the other
+        // TODO otherwise iterate over all my and his vertices (to check if they're included in the other)
+
+        // TODO function to check if point is inside polygon
+        // TODO iterate over all vertices
+        // TODO iterate over all other body's sides
+        // TODO Check if one ray to one of my vertices intersects with the others sides in an uneven count
+        // TODO use a ray which starts much earlier than my center (otherwise we would not identify total inclusion case)
+        // TODO if yes, intersection found - determine intersection point
+
+        // default impl for intersection point now is the middle of both centers
+        let intersection = self.pos + (body.pos - self.pos) * DVec2::new(0.5,0.5);
+        Some(intersection)
+    }
+    /// Returns coarse boundary (2d-area) of collision polygon after orientation rotation.
     fn boundary(&self) -> [DVec2;2] {
         match &self.coll {
             None => { [ self.pos.clone(), self.pos.clone() ] }, // no dimension, just position
@@ -107,6 +134,7 @@ impl RigidBody {
             }
         }
     }
+    /// Resets the previous position (e.g. before a collision happened).
     fn restore_last_pos(&mut self) {
         self.pos = self.last_pos;
     }
@@ -207,10 +235,10 @@ impl GameObject for Square {
             }
         }
     }
-    fn boundary(&self) -> [DVec2; 2] {
-        self.body.boundary()
+    fn body(&self) -> &RigidBody {
+        &self.body
     }
-    fn collide(&mut self, body:&RigidBody) {
+    fn collide(&mut self, body:&RigidBody, _coll_pos:&DVec2) {
         self.body.restore_last_pos();
         let mut direction = (body.pos-self.body.pos).angle_between(DVec2::new(1.0,0.0));
         if direction < 0.0 { direction+=2.0*PI };
@@ -226,9 +254,6 @@ impl GameObject for Square {
         } else { DVec2::new(0.0,0.0)  /* no bounce */ };
         //println!("coll between pos {:?} and other pos {:?} with angle {:?} PI/4 resulting in {:?}", self.body.pos, body.pos, direction/ Q_PI, &violation);
         self.bounce(&violation);
-    }
-    fn body(&self) -> &RigidBody {
-        &self.body
     }
 }
 
@@ -260,11 +285,15 @@ impl App {
     fn update(&mut self, args: &UpdateArgs) {
         // movement of game objects
         for go in self.go_list.iter_mut() {
-            go.update(args.dt, &self.ac);
+            let mut dt = args.dt;
+            if *(SLOW.read().unwrap()) {
+                dt = dt / 5.0;
+            }
+            go.update(dt, &self.ac);
         }
         // coarse collision detection
         let boundaries = self.go_list.iter()
-            .map(|go| go.boundary())
+            .map(|go| go.body().boundary())
             .collect::<Vec<[DVec2;2]>>();
         for i in 0..boundaries.len() {
             for j in (i+1)..boundaries.len() {
@@ -278,14 +307,17 @@ impl App {
                     || r2[1].y <= r1[0].y // r2.bottom < r1.top
                 );
                 if intersect {
-                    println!("coarse collision detected between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
-                    // TODO finer collision detection
-
-                    // inform about collision
+                    // finer collision detection for remaining candidates
                     let ibody= (*self.go_list.get(i).unwrap().body()).clone();
                     let jbody= (*self.go_list.get(j).unwrap().body()).clone();
-                    self.go_list.get_mut(i).unwrap().collide(&jbody);
-                    self.go_list.get_mut(j).unwrap().collide(&ibody);
+                    if let Some(coll_pos) = ibody.intersect(&jbody) {
+                        // inform about collision
+                        println!("real collision detected between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
+                        self.go_list.get_mut(i).unwrap().collide(&jbody, &coll_pos);
+                        self.go_list.get_mut(j).unwrap().collide(&ibody, &coll_pos);
+                    } else {
+                        println!("coarse collision ignored between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
+                    }
                 }
             }
         }
@@ -337,6 +369,11 @@ fn main() {
                 let pause = !*(PAUSE.read().unwrap());
                 println!("Pause flag switched to '{:?}'", pause);
                 *(PAUSE.write().unwrap()) = pause;
+            }
+            if key == keyboard::Key::S {
+                let slow = !*(SLOW.read().unwrap());
+                println!("Slow flag switched to '{:?}'", slow);
+                *(SLOW.write().unwrap()) = slow;
             }
         }
         if let Some(Button::Mouse(button)) = e.press_args() {
