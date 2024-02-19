@@ -38,6 +38,7 @@ pub struct RigidBody {
     pub tor: f64,
 }
 impl RigidBody {
+    /// Updates movement and rotation
     pub fn update(&mut self, dt:f64) {
         // move
         self.pos = self.pos.add(self.vel.mul(DVec2::new(dt,dt)));
@@ -46,6 +47,7 @@ impl RigidBody {
         // rotate
         self.ori += self.tor * dt;
     }
+    /// Updates movement and rotation, but ensures that body stays within boundary and returns a violation vector option
     pub fn update_with_boundary(&mut self, dt:f64, boundary:[DVec2;2]) -> Option<DVec2> {
         self.update(dt);
         let mut violation = DVec2::new(0f64, 0f64);
