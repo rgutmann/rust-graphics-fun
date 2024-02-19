@@ -14,21 +14,17 @@ use piston::window::WindowSettings;
 use rand::RngCore;
 use rand::rngs::OsRng;
 
-const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
-//const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
-const GREY_80: [f32; 4] = [0.8, 0.8, 0.8, 1.0];
-const GREY_60: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
-const GREY_40: [f32; 4] = [0.4, 0.4, 0.4, 1.0];
-const GREY_20: [f32; 4] = [0.2, 0.2, 0.2, 1.0];
+const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 
 // Every object that needs to be rendered on screen.
 pub trait GameObject {
     fn render(&self, ctxt: &Context, gl: &mut GlGraphics);
-    fn update(&mut self, _: f64, _ac: &AppContext) {
+    fn update(&mut self, _dt: f64, _ac: &AppContext) {
         // By default do nothing in the update function
     }
 }
 
+#[derive(Debug)]
 struct Square {
     color: [f32; 4],
     size: f64,
@@ -92,7 +88,7 @@ impl App {
 
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
-            clear(GREEN, gl);
+            clear(BLACK, gl);
             for go in &self.go_list {
                 go.render(&c, gl);
             }
@@ -124,40 +120,22 @@ fn main() {
         .unwrap();
 
     let center_position = DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64);
-    let go_list :Vec<Box<dyn GameObject>> = vec![
-        Box::new(Square {
-            color: GREY_80,
-            size: 50.0,
+    let mut go_list :Vec<Box<dyn GameObject>> = vec![];
+    for i in 0..=8 {
+        let cshard = ((10-i) as f32) / 10.0;
+        let max_size = 50.0f64;
+        let max_speed = 200.0f64;
+        let x = Box::new(Square {
+            color: [cshard, cshard, cshard, 1.0],
+            size: max_size * ((10-i) as f64 / 10.0),
             rotation: 0.0,
             rotation_speed: 2.0,
             position: center_position,
-            velocity: DVec2::new(200.0, 200.0),
-        }),
-        Box::new(Square {
-            color: GREY_60,
-            size: 40.0,
-            rotation: 0.0,
-            rotation_speed: 2.0,
-            position: center_position,
-            velocity: DVec2::new(160.0, 160.0),
-        }),
-        Box::new(Square {
-            color: GREY_40,
-            size: 30.0,
-            rotation: 0.0,
-            rotation_speed: 2.0,
-            position: center_position,
-            velocity: DVec2::new(120.0, 120.0),
-        }),
-        Box::new(Square {
-            color: GREY_20,
-            size: 20.0,
-            rotation: 0.0,
-            rotation_speed: 2.0,
-            position: center_position,
-            velocity: DVec2::new(80.0, 80.0),
-        }),
-        ];
+            velocity: DVec2::new(max_speed * ((10-i) as f64 / 10.0), max_speed * ((10-i) as f64 / 10.0)),
+        });
+        println!("{:?}", x);
+        go_list.push(x);
+    }
 
     // Create a new game and run it.
     let mut app = App {
@@ -195,6 +173,5 @@ mod test {
         let v2 = Vec2::new(2.0,3.0);
         let v3 = v1.mul(v2);
         println!("{v1}.mul({v2})={v3}");
-
     }
 }
