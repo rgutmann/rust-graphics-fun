@@ -5,9 +5,10 @@ extern crate piston;
 extern crate core;
 
 use glam::{DVec2};
-use glutin_window::GlutinWindow as Window;
+use glutin_window::GlutinWindow;
 use graphics::Context;
 use opengl_graphics::{GlGraphics, OpenGL};
+use piston::{Button, PressEvent, Size, Window};
 use piston::event_loop::{EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
@@ -200,33 +201,14 @@ fn main() {
     let opengl = OpenGL::V3_2;
 
     // Create a Glutin window.
-    let initial_window_size = [400, 200];
-    let mut window: Window = WindowSettings::new("spinning-squares", initial_window_size)
+    let initial_window_size = [800, 200];
+    let mut window: GlutinWindow = WindowSettings::new("spinning-squares", initial_window_size)
         .graphics_api(opengl)
         .exit_on_esc(true)
         .build()
         .unwrap();
 
-    let center_position = DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64);
-    let mut go_list :Vec<Box<dyn GameObject>> = vec![];
-    for i in 0..=8 {
-        let cshard = ((10-i) as f32) / 10.0;
-        let max_size = 50.0f64;
-        let max_speed = 200.0f64;
-        let body = RigidBody {
-            ori: 0.0,
-            tor: 2.0,
-            pos: center_position,
-            vel: DVec2::new(max_speed * ((i+2) as f64 / 10.0), max_speed * ((i+2) as f64 / 10.0)),
-            grav: 50.0,
-            ..Default::default()
-        };
-        let color = [cshard, cshard, cshard, 1.0];
-        let size = max_size * ((10-i) as f64 / 10.0);
-        let x = Box::new(Square::new( body, color, size ));
-        println!("{:?}", x);
-        go_list.push(x);
-    }
+    let go_list = generate_game_objects(window.size());
 
     // Create a new game and run it.
     let mut app = App {
@@ -245,7 +227,37 @@ fn main() {
         if let Some(args) = e.update_args() {
             app.update(&args);
         }
+        if let Some(Button::Mouse(button)) = e.press_args() {
+            println!("Pressed mouse button '{:?} {:?}'", button, window.size());
+            let mut game_objects = generate_game_objects(window.size());
+            app.go_list.clear();
+            app.go_list.append(&mut game_objects);
+        }
     }
+}
+
+fn generate_game_objects(size: Size) -> Vec<Box<dyn GameObject>> {
+    let center_position = DVec2::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
+    let mut go_list: Vec<Box<dyn GameObject>> = vec![];
+    for i in 0..=8 {
+        let cshard = ((10 - i) as f32) / 10.0;
+        let max_size = 50.0f64;
+        let max_speed = 200.0f64;
+        let body = RigidBody {
+            ori: 0.0,
+            tor: 2.0,
+            pos: center_position + DVec2::new((i - 4) as f64 * (max_size + 20f64), 0f64),
+            vel: DVec2::new(max_speed * ((i + 2) as f64 / 10.0), max_speed * ((i + 2) as f64 / 10.0)),
+            grav: 50.0,
+            ..Default::default()
+        };
+        let color = [cshard, cshard, cshard, 1.0];
+        let size = max_size * ((10 - i) as f64 / 10.0);
+        let x = Box::new(Square::new(body, color, size));
+        println!("{:?}", x);
+        go_list.push(x);
+    }
+    go_list
 }
 
 #[cfg(test)]
@@ -254,7 +266,7 @@ mod test {
     use glam::Vec2;
 
     #[test]
-    fn test_glam() {
+    fn test_scrapbook() {
         let v1 = Vec2::new(1.0,1.0);
         let v2 = Vec2::new(2.0,3.0);
         let v3 = v1.add(v2);
