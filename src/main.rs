@@ -12,7 +12,6 @@ use std::sync::RwLock;
 use glam::{DVec2};
 use glutin_window::GlutinWindow;
 use graphics::Context;
-use graphics::rectangle::rectangle_by_corners;
 use opengl_graphics::{GlGraphics, OpenGL};
 use piston::{Button, keyboard, MouseButton, PressEvent, Size, Window};
 use piston::event_loop::{EventSettings, Events};
@@ -215,17 +214,17 @@ impl GameObject for Square {
         self.body.restore_last_pos();
         let mut direction = (body.pos-self.body.pos).angle_between(DVec2::new(1.0,0.0));
         if direction < 0.0 { direction+=2.0*PI };
-        const qPI: f64 = PI / 4.0;
-        let violation = if direction < qPI || direction >= qPI * 7.0  {
+        const Q_PI: f64 = PI / 4.0;
+        let violation = if direction < Q_PI || direction >= Q_PI * 7.0  {
             DVec2::new(1.0,0.0)  // right bounce
-        } else if direction < qPI * 3.0 && direction >= qPI * 1.0 {
+        } else if direction < Q_PI * 3.0 && direction >= Q_PI * 1.0 {
             DVec2::new(0.0,-1.0) // top bounce
-        } else if direction < qPI * 5.0 && direction >= qPI * 3.0 {
+        } else if direction < Q_PI * 5.0 && direction >= Q_PI * 3.0 {
             DVec2::new(-1.0,0.0) // left bounce
-        } else if direction < qPI * 7.0 && direction >= qPI * 5.0 {
+        } else if direction < Q_PI * 7.0 && direction >= Q_PI * 5.0 {
             DVec2::new(0.0,1.0)  // bottom bounce
         } else { DVec2::new(0.0,0.0)  /* no bounce */ };
-        println!("coll between pos {:?} and other pos {:?} with angle {:?} PI/4 resulting in {:?}", self.body.pos, body.pos, direction/qPI, &violation);
+        //println!("coll between pos {:?} and other pos {:?} with angle {:?} PI/4 resulting in {:?}", self.body.pos, body.pos, direction/ Q_PI, &violation);
         self.bounce(&violation);
     }
     fn body(&self) -> &RigidBody {
@@ -279,7 +278,10 @@ impl App {
                     || r2[1].y <= r1[0].y // r2.bottom < r1.top
                 );
                 if intersect {
-                    println!("collision detected between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
+                    println!("coarse collision detected between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
+                    // TODO finer collision detection
+
+                    // inform about collision
                     let ibody= (*self.go_list.get(i).unwrap().body()).clone();
                     let jbody= (*self.go_list.get(j).unwrap().body()).clone();
                     self.go_list.get_mut(i).unwrap().collide(&jbody);
@@ -357,14 +359,13 @@ fn generate_game_objects(size: Size) -> Vec<Box<dyn GameObject>> {
     let center_position = DVec2::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
     let mut go_list: Vec<Box<dyn GameObject>> = vec![];
     for i in 0..=8 {
-        let cshard = ((10 - i) as f32) / 10.0;
+        let cshard = ((i+2) as f32) / 10.0;
         let max_size = 50.0f64;
         let max_speed = 200.0f64;
         let body = RigidBody {
             ori: 0.0,
             tor: 2.0,
             pos: center_position + DVec2::new((i - 4) as f64 * (max_size + 20f64), 0f64),
-            //pos: center_position + DVec2::new((max_size + 20f64), 30f64 + (i-1) as f64 * (max_size + 30f64)),
             vel: DVec2::new(max_speed * ((i + 2) as f64 / 10.0), max_speed * ((i + 2) as f64 / 10.0)),
             grav: 50.0,
             ..Default::default()
