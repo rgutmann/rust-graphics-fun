@@ -185,7 +185,7 @@ impl RigidBody {
                 intersection_point = Some(intersection_list.get(intersection_list.len() - 1).unwrap().clone());
                 //println!("!!!!!real intersection found");
                 if *(DEBUG.read().unwrap()) { // TODO REMOVE WHEN NOT NEEDED ANYMORE
-                    *(PAUSE.write().unwrap()) = true;
+                    //*(PAUSE.write().unwrap()) = true;
                 }
                 break;
             } else {
@@ -293,7 +293,7 @@ impl GameObject for Square {
         rectangle(self.color, square, transform, gl);
         if *DEBUG.read().unwrap() {
             // velocity vector
-            line_from_to(RED, 1.0, self.body.pos, self.body.vel, ctxt.transform, gl);
+            line_from_to(RED, 1.0, self.body.pos, self.body.pos+self.body.vel, ctxt.transform, gl);
             // boundary box
             let boundary = self.body.boundary();
             helper::rectangle_border_from_to(RED, 1.0, boundary[0], boundary[1], ctxt.transform, gl);
