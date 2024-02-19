@@ -2,8 +2,8 @@ extern crate glutin_window;
 extern crate graphics;
 extern crate opengl_graphics;
 extern crate piston;
+extern crate core;
 
-use std::ops::{Add, Mul};
 use glam::{DVec2};
 use glutin_window::GlutinWindow as Window;
 use graphics::Context;
@@ -38,29 +38,64 @@ pub struct RigidBody {
     pub tor: f64,
     /// gravity
     pub grav: f64,
+    /// collider polygon
+    pub coll: Option<Polygon>,
 }
 impl RigidBody {
     /// Updates movement and rotation
     pub fn update(&mut self, dt:f64) {
         // move
-        self.pos = self.pos.add(self.vel.mul(DVec2::new(dt,dt)));
+        self.pos += self.vel * DVec2::new(dt,dt);
         // accelerate
-        self.vel = self.vel.add(self.acc.mul(DVec2::new(dt,dt)));
+        self.vel += self.acc * DVec2::new(dt,dt);
         if self.grav > 0f64 {
-            self.vel = self.vel.add(DVec2::new(0f64, self.grav).mul(DVec2::new(dt,dt)));
+            self.vel += DVec2::new(0f64, self.grav) * DVec2::new(dt,dt);
         }
         // rotate
         self.ori += self.tor * dt;
     }
     /// Updates movement and rotation, but ensures that body stays within boundary and returns a violation vector option
-    pub fn update_with_boundary(&mut self, dt:f64, boundary:[DVec2;2]) -> Option<DVec2> {
+    pub fn update_with_boundary(&mut self, dt:f64, outer:[DVec2;2]) -> Option<DVec2> {
         self.update(dt);
         let mut violation = DVec2::new(0f64, 0f64);
-        if self.pos[0] < boundary[0][0] { violation[0]+=self.pos[0] - boundary[0][0]; self.pos[0] = boundary[0][0]; };
-        if self.pos[1] < boundary[0][1] { violation[1]+=self.pos[1] - boundary[0][1]; self.pos[1] = boundary[0][1]; };
-        if self.pos[0] > boundary[1][0] { violation[0]+=self.pos[0] - boundary[1][0]; self.pos[0] = boundary[1][0]; };
-        if self.pos[1] > boundary[1][1] { violation[1]+=self.pos[1] - boundary[1][1]; self.pos[1] = boundary[1][1]; };
+        match &self.coll {
+            None => {
+                if self.pos.x < outer[0].x { violation[0]+=self.pos.x - outer[0].x; };
+                if self.pos.y < outer[0].y { violation[1]+=self.pos.y - outer[0].y; };
+                if self.pos.x > outer[1].x { violation[0]+=self.pos.x - outer[1].x; };
+                if self.pos.y > outer[1].y { violation[1]+=self.pos.y - outer[1].y; };
+            },
+            Some(poly) => {
+                let mut inner = poly.boundary(dt);
+                inner[0] += self.pos;
+                inner[1] += self.pos;
+                if inner[0].x < outer[0].x { violation.x+=inner[0].x - outer[0].x; };
+                if inner[0].y < outer[0].y { violation.y+=inner[0].y - outer[0].y; };
+                if inner[1].x > outer[1].x { violation.x+=inner[1].x - outer[1].x; };
+                if inner[1].y > outer[1].y { violation.y+=inner[1].y - outer[1].y; };
+            }
+        }
+        self.pos -= violation;
         if violation.x == 0f64 && violation.y == 0f64 { None } else { Some(violation) }
+    }
+}
+
+#[derive(Debug, Default)]
+/// Polygon with is centered / relative to (0,0)
+pub struct Polygon {
+    points: Box<[DVec2]>,
+}
+impl Polygon {
+    /// Returns a max rectangle shaped boundary area (left upper and right lower point)
+    fn boundary(&self, _ori:f64) -> [DVec2;2] {
+        let mut result = [ DVec2::ZERO.clone(), DVec2::ZERO.clone() ];
+        for p in self.points.iter() {
+            if p.x < result[0].x { result[0].x = p.x };
+            if p.y < result[0].y { result[0].y = p.y };
+            if p.x > result[1].x { result[1].x = p.x };
+            if p.y > result[1].y { result[1].y = p.y };
+        }
+        result
     }
 }
 
@@ -69,6 +104,20 @@ struct Square {
     body: RigidBody,
     color: [f32; 4],
     size: f64,
+}
+impl Square {
+    pub fn new(body: RigidBody, color:[f32; 4], size:f64) -> Self {
+        let half_size = size / 2.0;
+        let mut square = Square { body, color, size, };
+        square.body.coll = Some(Polygon { points: Box::new([
+            DVec2::new( -half_size, -half_size ),
+            DVec2::new( half_size, -half_size ),
+            DVec2::new( half_size, half_size ),
+            DVec2::new( -half_size, half_size ),
+            ])
+        });
+        square
+    }
 }
 
 impl GameObject for Square {
@@ -84,8 +133,7 @@ impl GameObject for Square {
         rectangle(self.color, square, transform, gl);
     }
     fn update(&mut self, dt: f64, ac: &AppContext) {
-        let half_size = self.size / 2.0;
-        let boundary = [ DVec2::new(half_size, half_size), DVec2::new(ac.window_size[0] - half_size, ac.window_size[1] - half_size) ];
+        let boundary = [ DVec2::ZERO.clone(), DVec2::new(ac.window_size[0], ac.window_size[1]) ];
         let violation_option = self.body.update_with_boundary(dt, boundary);
         // Check boundary violations
         match violation_option {
@@ -162,18 +210,17 @@ fn main() {
         let cshard = ((10-i) as f32) / 10.0;
         let max_size = 50.0f64;
         let max_speed = 200.0f64;
-        let x = Box::new(Square {
-            color: [cshard, cshard, cshard, 1.0],
-            size: max_size * ((10-i) as f64 / 10.0),
-            body: RigidBody {
-                ori: 0.0,
-                tor: 2.0,
-                pos: center_position,
-                vel: DVec2::new(max_speed * ((i+2) as f64 / 10.0), max_speed * ((i+2) as f64 / 10.0)),
-                grav: 50.0,
-                ..Default::default()
-            }
-        });
+        let body = RigidBody {
+            ori: 0.0,
+            tor: 2.0,
+            pos: center_position,
+            vel: DVec2::new(max_speed * ((i+2) as f64 / 10.0), max_speed * ((i+2) as f64 / 10.0)),
+            grav: 50.0,
+            ..Default::default()
+        };
+        let color = [cshard, cshard, cshard, 1.0];
+        let size = max_size * ((10-i) as f64 / 10.0);
+        let x = Box::new(Square::new( body, color, size ));
         println!("{:?}", x);
         go_list.push(x);
     }
