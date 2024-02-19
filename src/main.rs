@@ -60,8 +60,8 @@ impl GameObject for Square {
         if new_pos[0] > (ac.window_size[0] - half_size) { new_pos[0] = ac.window_size[0] - half_size; new_vel[0] = - new_vel[0]; bounced = true; };
         if new_pos[1] > (ac.window_size[1] - half_size) { new_pos[1] = ac.window_size[1] - half_size; new_vel[1] = - new_vel[1]; bounced = true; };
         if bounced {
-            // adapt velocity vector by +/- 25% in x and y direction
-            new_vel += new_vel.mul(DVec2::new(random_25perc_var(), random_25perc_var()));
+            // adapt velocity vector by rotating +/- 25% of 1 radian (+/- 14 degrees)
+            new_vel = DVec2::from_angle(1f64 * random_25perc_var()).rotate(new_vel);
             // adapt rotation speed by +/- 25%
             self.rotation_speed = - self.rotation_speed * (1.0+random_25perc_var());
         }
@@ -113,7 +113,7 @@ fn main() {
 
     // Create a Glutin window.
     let initial_window_size = [400, 200];
-    let mut window: Window = WindowSettings::new("spinning-square", initial_window_size)
+    let mut window: Window = WindowSettings::new("spinning-squares", initial_window_size)
         .graphics_api(opengl)
         .exit_on_esc(true)
         .build()
@@ -131,7 +131,7 @@ fn main() {
             rotation: 0.0,
             rotation_speed: 2.0,
             position: center_position,
-            velocity: DVec2::new(max_speed * ((10-i) as f64 / 10.0), max_speed * ((10-i) as f64 / 10.0)),
+            velocity: DVec2::new(max_speed * ((i+2) as f64 / 10.0), max_speed * ((i+2) as f64 / 10.0)),
         });
         println!("{:?}", x);
         go_list.push(x);
