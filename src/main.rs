@@ -119,13 +119,34 @@ fn main() {
         .unwrap();
 
     let go_list :Vec<Box<dyn GameObject>> = vec![
-            Box::new(Square {
-                size: 50.0,
-                rotation: 0.0,
-                rotation_speed: 2.0,
-                position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
-                velocity: DVec2::new(200.0, 200.0),
-            }),
+        Box::new(Square {
+            size: 50.0,
+            rotation: 0.0,
+            rotation_speed: 2.0,
+            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+            velocity: DVec2::new(200.0, 200.0),
+        }),
+        Box::new(Square {
+            size: 40.0,
+            rotation: 0.0,
+            rotation_speed: 2.0,
+            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+            velocity: DVec2::new(160.0, 160.0),
+        }),
+        Box::new(Square {
+            size: 30.0,
+            rotation: 0.0,
+            rotation_speed: 2.0,
+            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+            velocity: DVec2::new(120.0, 120.0),
+        }),
+        Box::new(Square {
+            size: 20.0,
+            rotation: 0.0,
+            rotation_speed: 2.0,
+            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+            velocity: DVec2::new(80.0, 80.0),
+        }),
         ];
 
     // Create a new game and run it.
