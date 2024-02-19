@@ -10,16 +10,18 @@ extern crate core;
 use std::f64::consts::PI;
 use std::ops::Deref;
 use std::sync::RwLock;
-use glam::{DVec2};
+use glam::DVec2;
 use glutin_window::GlutinWindow;
 use graphics::Context;
 use opengl_graphics::{GlGraphics, OpenGL};
 use piston::{Button, keyboard, MouseButton, PressEvent, Size, Window};
-use piston::event_loop::{EventSettings, Events};
+use piston::event_loop::{Events, EventSettings};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
 use rand::RngCore;
 use rand::rngs::OsRng;
+
+mod helper;
 
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
@@ -59,6 +61,8 @@ pub struct RigidBody {
     pub tor: f64,
     /// gravity
     pub grav: f64,
+    /// mass
+    pub mass: f64,
     /// collider polygon (relative to position as center)
     pub coll: Option<Polygon>,
 }
@@ -107,11 +111,13 @@ impl RigidBody {
         // see https://stackoverflow.com/questions/753140/how-do-i-determine-if-two-convex-polygons-intersect
         // idea: use slower ray casting algorithm since it can handle non-convex polygons
         // and also returns the intersection point which we might need in the future
-        // TODO do both have collider polygons?
-        // TODO if no, just check if point is included in the other
-        // TODO otherwise iterate over all my and his vertices (to check if they're included in the other)
-        // iterate over all my vertices
-        let mut intersection_point = None;
+
+        // do both have collider polygons? (this fn actually shouldn't be called for that)
+        if self.coll == None || body.coll == None {
+            return None; // one has no dimension -> nothing to collide, nothing to check
+        }
+
+        // iterate over all my and his vertices (to check if they're included in the other)
         let my_pos = self.pos.clone();
         let other_pos = body.pos.clone();
         // rotate AND translate vertices points
@@ -120,7 +126,7 @@ impl RigidBody {
         let other_points:Vec<DVec2> = body.coll.as_ref().unwrap().points.deref().clone()
             .iter().map(|p| { DVec2::from_angle(body.ori).rotate(*p)+other_pos }).collect();
         // first check one side, and if not found from the other side
-        intersection_point = Self::is_point_inside(&my_pos, &my_points, &other_points);
+        let mut intersection_point = Self::is_point_inside(&my_pos, &my_points, &other_points);
         if intersection_point == None {
             intersection_point = Self::is_point_inside(&other_pos, &other_points, &my_points);
         }
@@ -216,7 +222,7 @@ impl RigidBody {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 /// Polygon with is centered / relative to (0,0)
 pub struct Polygon {
     points: Box<[DVec2]>,
@@ -255,6 +261,7 @@ impl Square {
             DVec2::new( -half_size, half_size ),
             ])
         });
+        square.body.mass = (size*size)/100.0;
         square
     }
     fn bounce(&mut self, violation: &DVec2) {
@@ -265,11 +272,12 @@ impl Square {
         if violation.y < 0f64 { new_vel.y = f64::abs(new_vel.y); };
         if violation.y > 0f64 { new_vel.y = -f64::abs(new_vel.y); };
         // and adapt velocity by rotating +/- 25% of 1 radian (+/- 14 degrees)
-        new_vel = DVec2::from_angle(1f64 * random_25perc_var()).rotate(new_vel);
+        new_vel = DVec2::from_angle(1f64 * helper::random_25perc_var()).rotate(new_vel);
         // reverse rotation and adapt rotation speed by +/- 25%
-        self.body.tor = -self.body.tor * (1.0 + random_25perc_var());
+        self.body.tor = -self.body.tor * (1.0 + helper::random_25perc_var());
         self.body.vel = new_vel;
     }
+
 }
 
 impl GameObject for Square {
@@ -285,19 +293,10 @@ impl GameObject for Square {
         rectangle(self.color, square, transform, gl);
         if *DEBUG.read().unwrap() {
             // velocity vector
-            let transform = ctxt
-                .transform
-                .trans(self.body.pos[0], self.body.pos[1]);
-            line_from_to(RED, 1.0, DVec2::ZERO.clone(), self.body.vel, transform, gl);
+            line_from_to(RED, 1.0, self.body.pos, self.body.vel, ctxt.transform, gl);
             // boundary box
             let boundary = self.body.boundary();
-            let transform = ctxt
-                .transform;
-            //rectangle_from_to(RED, boundary[0], boundary[1], transform, gl);
-            line_from_to(RED, 1.0, boundary[0], DVec2::new(boundary[1].x, boundary[0].y), transform, gl);
-            line_from_to(RED, 1.0, DVec2::new(boundary[1].x, boundary[0].y), boundary[1], transform, gl);
-            line_from_to(RED, 1.0, boundary[1], DVec2::new(boundary[0].x, boundary[1].y), transform, gl);
-            line_from_to(RED, 1.0, DVec2::new(boundary[0].x, boundary[1].y), boundary[0], transform, gl);
+            helper::rectangle_border_from_to(RED, 1.0, boundary[0], boundary[1], ctxt.transform, gl);
         }
     }
     fn update(&mut self, dt: f64, ac: &AppContext) {
@@ -315,7 +314,12 @@ impl GameObject for Square {
         &self.body
     }
     fn collide(&mut self, body:&RigidBody, _coll_pos:&DVec2) {
-        self.body.restore_last_pos();
+        self.body.restore_last_pos(); // just to ensure that the bodies don't remain overlapped
+
+        // TODO real 2d rigid body collision instead of fake direction inversion
+        // let vel1 = self.body.vel;
+        // let vel2 = body.vel;
+
         let mut direction = (body.pos-self.body.pos).angle_between(DVec2::new(1.0,0.0));
         if direction < 0.0 { direction+=2.0*PI };
         const Q_PI: f64 = PI / 4.0;
@@ -377,7 +381,9 @@ impl App {
                 let r1 = boundaries[i];
                 let r2 = boundaries[j];
                 let intersect = !(
-                    r2[0].x >= r1[1].x    // r2.left > r1.right
+                       r1[0].x == r1[1].x && r1[0].y == r1[1].y // r1 has no dimension
+                    || r2[0].x == r2[1].x && r2[0].y == r2[1].y // r2 has no dimension
+                    || r2[0].x >= r1[1].x // r2.left > r1.right
                     || r2[1].x <= r1[0].x // r2.right < r1.left
                     || r2[0].y >= r1[1].y // r2.top > r1.bottom
                     || r2[1].y <= r1[0].y // r2.bottom < r1.top
@@ -388,6 +394,8 @@ impl App {
                     let jbody= (*self.go_list.get(j).unwrap().body()).clone();
                     if let Some(coll_pos) = ibody.intersect(&jbody) {
                         // inform about collision
+                        // TODO if DEBUG add temporary highlight of position (circle?)
+
                         //println!("real collision detected between {}::{:?} and {}::{:?}",i,boundaries[i],j,boundaries[j]);
                         self.go_list.get_mut(i).unwrap().collide(&jbody, &coll_pos);
                         self.go_list.get_mut(j).unwrap().collide(&ibody, &coll_pos);
@@ -401,10 +409,31 @@ impl App {
     }
 }
 
-// Generates randoms between -25% and +25%
-fn random_25perc_var() -> f64 {
-    (((OsRng.next_u32()) as f64) / (u32::MAX as f64) / 2.0) - 0.25
+/// Generate initial game objects for startup and restart.
+fn generate_game_objects(size: Size) -> Vec<Box<dyn GameObject>> {
+    let center_position = DVec2::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
+    let mut go_list: Vec<Box<dyn GameObject>> = vec![];
+    for i in 0..=8 {
+        let cshard = ((i+2) as f32) / 10.0;
+        let max_size = 50.0f64;
+        let max_speed = 200.0f64;
+        let body = RigidBody {
+            ori: 0.0,
+            tor: 2.0,
+            pos: center_position + DVec2::new((i - 4) as f64 * (max_size + 20f64), 0f64),
+            vel: DVec2::new(max_speed * ((i + 2) as f64 / 10.0), max_speed * ((i + 2) as f64 / 10.0)),
+            grav: 50.0,
+            ..Default::default()
+        };
+        let color = [cshard, cshard, cshard, 1.0];
+        let size = max_size * ((10 - i) as f64 / 10.0);
+        let x = Box::new(Square::new(body, color, size));
+        println!("{:?}", x);
+        go_list.push(x);
+    }
+    go_list
 }
+
 
 fn main() {
     // Change this to OpenGL::V2_1 if not working.
@@ -412,7 +441,7 @@ fn main() {
 
     // Create a Glutin window.
     let initial_window_size = [800, 200];
-    let mut window: GlutinWindow = WindowSettings::new("spinning-squares", initial_window_size)
+    let mut window: GlutinWindow = WindowSettings::new("Spinning-squares --- 'P' Pause - 'S' Slow - 'leftMB' Restart - 'rightMB' Debug", initial_window_size)
         .graphics_api(opengl)
         .exit_on_esc(true)
         .build()
@@ -466,30 +495,6 @@ fn main() {
             }
         }
     }
-}
-
-fn generate_game_objects(size: Size) -> Vec<Box<dyn GameObject>> {
-    let center_position = DVec2::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
-    let mut go_list: Vec<Box<dyn GameObject>> = vec![];
-    for i in 0..=8 {
-        let cshard = ((i+2) as f32) / 10.0;
-        let max_size = 50.0f64;
-        let max_speed = 200.0f64;
-        let body = RigidBody {
-            ori: 0.0,
-            tor: 2.0,
-            pos: center_position + DVec2::new((i - 4) as f64 * (max_size + 20f64), 0f64),
-            vel: DVec2::new(max_speed * ((i + 2) as f64 / 10.0), max_speed * ((i + 2) as f64 / 10.0)),
-            grav: 50.0,
-            ..Default::default()
-        };
-        let color = [cshard, cshard, cshard, 1.0];
-        let size = max_size * ((10 - i) as f64 / 10.0);
-        let x = Box::new(Square::new(body, color, size));
-        println!("{:?}", x);
-        go_list.push(x);
-    }
-    go_list
 }
 
 #[cfg(test)]
