@@ -72,7 +72,7 @@ impl GameObject for Square {
 pub struct App {
     gl: GlGraphics, // OpenGL drawing backend.
     ac: AppContext,
-    square: Square,
+    go_list: Vec<Box<dyn GameObject>>,
 }
 
 pub struct AppContext {
@@ -88,13 +88,16 @@ impl App {
         self.gl.draw(args.viewport(), |c, gl| {
             // Clear the screen.
             clear(GREEN, gl);
-
-            self.square.render(&c, gl);
+            for go in &self.go_list {
+                go.render(&c, gl);
+            }
         });
     }
 
     fn update(&mut self, args: &UpdateArgs) {
-        self.square.update(args.dt, &self.ac);
+        for go in self.go_list.iter_mut() {
+            go.update(args.dt, &self.ac);
+        }
     }
 }
 
@@ -115,17 +118,23 @@ fn main() {
         .build()
         .unwrap();
 
+    let go_list :Vec<Box<dyn GameObject>> = vec![
+            Box::new(Square {
+                size: 50.0,
+                rotation: 0.0,
+                rotation_speed: 2.0,
+                position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
+                velocity: DVec2::new(200.0, 200.0),
+            }),
+        ];
+
     // Create a new game and run it.
     let mut app = App {
         gl: GlGraphics::new(opengl),
-        ac: AppContext { window_size: [(initial_window_size[0]) as f64, (initial_window_size[1]) as f64] as [f64;2]  },
-        square: Square {
-            size: 50.0,
-            rotation: 0.0,
-            rotation_speed: 2.0,
-            position: DVec2::new((initial_window_size[0] / 2) as f64, (initial_window_size[1] / 2) as f64 ),
-            velocity: DVec2::new(200.0, 200.0),
-            },
+        ac: AppContext {
+            window_size: [(initial_window_size[0]) as f64, (initial_window_size[1]) as f64] as [f64;2],
+        },
+        go_list
     };
 
     let mut events = Events::new(EventSettings::new());
