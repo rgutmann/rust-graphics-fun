@@ -13,6 +13,8 @@ pub struct RigidBody {
     pub acc: DVec2,
     /// orientation (rotation)
     pub ori: f64,
+    /// previous orientation
+    pub last_ori: f64,
     /// torque (angular velocity)
     pub tor: f64,
     /// gravity
@@ -26,8 +28,10 @@ pub struct RigidBody {
 impl RigidBody {
     /// Updates movement and rotation
     pub fn update(&mut self, dt:f64) {
-        // move
         self.last_pos = self.pos.clone();
+        self.last_ori = self.ori.clone();
+
+        // move
         self.pos += self.vel * DVec2::new(dt,dt);
         // accelerate
         self.vel += self.acc * DVec2::new(dt,dt);
@@ -173,6 +177,7 @@ impl RigidBody {
     /// Resets the previous position (e.g. before a collision happened).
     pub fn restore_last_pos(&mut self) {
         self.pos = self.last_pos;
+        self.ori = self.last_ori;
     }
 }
 

@@ -173,14 +173,16 @@ impl App {
         self.ac.window_size = args.viewport().window_size.clone();
 
         self.gl.draw(args.viewport(), |c, gl| {
-            // Clear the screen.
+            // Clear the screen
             clear(BLACK, gl);
+            // Render all game objects
             for go in &self.go_list {
                 go.render(&c, gl);
             }
+            // Render temporary markers and remove expired ones
             self.marker_list.retain(|tm|{!tm.is_expired()});
             self.marker_list.iter()
-                .for_each(|tm|{ square_border_at(RED,1.0, 4.0, tm.pos, c.transform, gl) });
+                .for_each(|tm|{ square_border_at(RED,1.0, 6.0, tm.pos, c.transform, gl) });
         });
     }
 
